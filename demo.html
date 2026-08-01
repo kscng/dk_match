@@ -332,5 +332,10 @@ window.__checkAll = async () => {
 <script>
   // Registered outside the module script since SW registration doesn't need to be one.
   // Runs on http(s) as well as plain http on localhost — both count as a secure context.
-  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+  // Waiting on 'load' can register too late if it already fired by the time this runs
+  // (observed on some navigations), so register immediately whenever that's already true.
+  if ('serviceWorker' in navigator) {
+    const reg = () => navigator.serviceWorker.register('sw.js');
+    document.readyState === 'complete' ? reg() : addEventListener('load', reg);
+  }
 </script>
