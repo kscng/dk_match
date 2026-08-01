@@ -1,0 +1,38 @@
+Hole1_v
+=======
+  Textures:
+
+  Ambient Colors:
+    - 50, 50, 50, 50
+
+  Material Colors:
+    - 0, 0, 0, 255
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = (vertex RGB)
+         A = (vertex A)
+
+
+
+lambert1_v_x
+============
+  Textures:
+    - Heart
+    - HighLightG
+        Offset: 0, -0.0830078125
+        Scale: 0.9912109375, 0.9912109375
+        Rotation: 0.15280617694631793
+
+  Ambient Colors:
+    - 50, 50, 50, 50
+
+  Color Registers:
+    - 155, 24, 21, 255
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (155, 24, 21))
+         A = (vertex A), then add (vertex A)
+    2: RGB = ((vertex RGB) * (tex #2 RGB)), then add (prev. RGB)
+         A = 0, then add (prev. A)

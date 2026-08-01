@@ -1,0 +1,196 @@
+Body
+====
+  Textures:
+    - elefpantcannon.0
+    - HighLightE
+        Offset: -0.205078125, 0.1220703125
+        Scale: 0.8999999761581421, 0.8999999761581421
+        Rotation: 0.2890408032471694
+    - ElefphantCannonDirty
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Color Registers:
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (vertex RGB))
+         A = ((tex #1 A) * (vertex A))
+    2: RGB = (tex #3 RGB), multiply by 4
+         A = (vertex A)
+    3: RGB = (prev. RGB)
+         A = (vertex A)
+    4: RGB = ((vertex RGB) * (tex #2 RGB)), then add (prev. RGB)
+         A = (vertex A)
+
+
+
+Body_etc
+========
+  Textures:
+    - elefpantcannon.0
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (vertex RGB))
+         A = ((tex #1 A) * (vertex A))
+
+
+
+Eye
+===
+  Textures:
+    - elefpantcannon.0
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Color Registers:
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (tex #1 RGB)), multiply by 4
+         A = ((tex #1 A) * (vertex A))
+
+
+
+Laser
+=====
+  Textures:
+    - ECE
+    - HighLightE
+        Offset: -0.205078125, 0.1220703125
+        Scale: 0.703125, 0.703125
+        Rotation: 0.2890408032471694
+    - ElefphantCannonDirty
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Color Registers:
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (vertex RGB))
+         A = ((tex #1 A) * (vertex A))
+    2: RGB = (tex #3 RGB), multiply by 4
+         A = (vertex A)
+    3: RGB = (prev. RGB)
+         A = (vertex A)
+    4: RGB = ((vertex RGB) * (tex #2 RGB)), then add (prev. RGB)
+         A = (vertex A)
+
+
+
+Body(2)
+=======
+  Textures:
+    - elefpantcannon.0
+    - HighLightE
+        Offset: -0.205078125, 0.1220703125
+        Scale: 0.703125, 0.703125
+        Rotation: 0.2890408032471694
+    - ElefphantCannonDirty
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Color Registers:
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (vertex RGB))
+         A = ((tex #1 A) * (vertex A))
+    2: RGB = (tex #3 RGB), multiply by 4
+         A = (vertex A)
+    3: RGB = (prev. RGB)
+         A = (vertex A)
+    4: RGB = ((vertex RGB) * (tex #2 RGB)), then add (prev. RGB)
+         A = (vertex A)
+
+
+
+Body(3)
+=======
+  Textures:
+    - elefpantcannon.0
+    - HighLightE
+        Offset: -0.205078125, 0.1220703125
+        Scale: 0.703125, 0.703125
+        Rotation: 0.2890408032471694
+    - ElefphantCannonDirty
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Color Registers:
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (vertex RGB))
+         A = ((tex #1 A) * (vertex A))
+    2: RGB = (tex #3 RGB), multiply by 4
+         A = (vertex A)
+    3: RGB = (prev. RGB)
+         A = (vertex A)
+    4: RGB = ((vertex RGB) * (tex #2 RGB)), then add (prev. RGB)
+         A = (vertex A)
+
+
+
+Body(4)
+=======
+  Textures:
+    - elefpantcannon.0
+    - HighLightE
+        Offset: -0.205078125, 0.1220703125
+        Scale: 0.703125, 0.703125
+        Rotation: 0.2890408032471694
+    - ElefphantCannonDirty
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Color Registers:
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (vertex RGB))
+         A = ((tex #1 A) * (vertex A))
+    2: RGB = (tex #3 RGB), multiply by 4
+         A = (vertex A)
+    3: RGB = (prev. RGB)
+         A = (vertex A)
+    4: RGB = ((vertex RGB) * (tex #2 RGB)), then add (prev. RGB)
+         A = (vertex A)
+
+
+
+Laser(2)
+========
+  Textures:
+    - ECE
+    - HighLightE
+        Offset: -0.205078125, 0.1220703125
+        Scale: 0.703125, 0.703125
+        Rotation: 0.2890408032471694
+    - ElefphantCannonDirty
+
+  Ambient Colors:
+    - 60, 60, 60, 50
+
+  Color Registers:
+    - 0, 0, 0, 255
+
+  Steps:
+    1: RGB = ((tex #1 RGB) * (vertex RGB))
+         A = ((tex #1 A) * (vertex A))
+    2: RGB = (tex #3 RGB), multiply by 4
+         A = (vertex A)
+    3: RGB = (prev. RGB)
+         A = (vertex A)
+    4: RGB = ((vertex RGB) * (tex #2 RGB)), then add (prev. RGB)
+         A = (vertex A)

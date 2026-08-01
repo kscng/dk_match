@@ -1,0 +1,28 @@
+LaserMat
+========
+  Textures:
+    - dka_LaserMask00
+        Offset: 4.5, 0
+        Scale: 10, 1
+    - dka_LaserMain01
+        Scale: 5, 1
+    - dka_LaserMain00
+
+  Ambient Colors:
+    - 50, 50, 50, 50
+
+  Material Colors:
+    - 204, 204, 204, 255
+    - 204, 204, 204, 255
+
+  Color Registers:
+    - 0, 200, 255, 255
+    - 230, 255, 255, 200
+
+  Steps:
+    1: RGB = (lerp from (255, 255, 255) to (200, 200, 200) using (tex #2 RGB))
+         A = 0, then add 255
+    2: RGB = ((prev. RGB) * (tex #3 RGB))
+         A = ((tex #3 A) * (prev. A))
+    3: RGB = (lerp from (0, 200, 255) to (230, 255, 255) using (prev. RGB))
+         A = ((tex #1 A) * (prev. A))

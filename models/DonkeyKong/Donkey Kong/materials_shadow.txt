@@ -1,0 +1,65 @@
+Shadow
+======
+  Textures:
+
+  Ambient Colors:
+    - 50, 50, 50, 50
+
+  Material Colors:
+    - 0, 0, 14, 255
+    - 0, 0, 14, 255
+
+  Steps:
+    1: RGB = (vertex RGB)
+         A = (vertex A)
+
+
+
+lambert1
+========
+  Textures:
+
+  Ambient Colors:
+    - 50, 50, 50, 50
+
+  Material Colors:
+    - 102, 102, 102, 255
+    - 102, 102, 102, 255
+
+  Steps:
+    1: RGB = (vertex RGB)
+         A = (vertex A)
+
+
+
+lambert1(2)
+===========
+  Textures:
+
+  Ambient Colors:
+    - 50, 50, 50, 50
+
+  Material Colors:
+    - 102, 102, 102, 255
+    - 102, 102, 102, 255
+
+  Steps:
+    1: RGB = (vertex RGB)
+         A = (vertex A)
+
+
+
+lambert1(3)
+===========
+  Textures:
+
+  Ambient Colors:
+    - 50, 50, 50, 50
+
+  Material Colors:
+    - 102, 102, 102, 255
+    - 102, 102, 102, 255
+
+  Steps:
+    1: RGB = (vertex RGB)
+         A = (vertex A)

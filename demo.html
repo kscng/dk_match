@@ -1,0 +1,324 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DK Jungle Beat — DK vs boss</title>
+<style>
+  body{margin:0;background:#1a2330;overflow:hidden;font:14px system-ui,-apple-system,sans-serif;color:#fff}
+  #top{position:fixed;top:calc(8px + env(safe-area-inset-top));left:0;right:0;display:flex;gap:8px;
+       justify-content:center;flex-wrap:wrap;padding:0 10px;z-index:2}
+  #ui{position:fixed;bottom:0;left:0;right:0;padding:10px calc(12px + env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom));
+      display:flex;gap:8px;flex-wrap:wrap;justify-content:center;z-index:2}
+  button{flex:0 1 auto;min-width:74px;padding:10px 13px;border:0;border-radius:10px;background:#e86a3a;color:#fff;
+         font:600 13px system-ui;-webkit-tap-highlight-color:transparent}
+  #top button{background:#33465e}
+  #top button.on{background:#e8b13a;color:#20170a}
+  button:active{transform:scale(.96)}
+  #hud{position:fixed;left:10px;bottom:56px;font:11px ui-monospace,monospace;opacity:.55;white-space:pre;pointer-events:none}
+</style>
+<div id="top"></div>
+<div id="ui">
+  <button id="faceBtn">face</button>
+</div>
+<div id="hud">loading…</div>
+
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---- layout knobs ------------------------------------------------------
+const GAP = 3.4;    // clear world units between the two characters — the board goes here
+const YAW = 0.34;   // how far each one turns in toward the middle
+const PAD = 1.04;   // camera breathing room around the pair
+const TALL = 3.2;   // every character is scaled to this height, so DK reads the same size
+                    // as the boss. Set to 0 to keep the rips' authentic relative scales
+                    // (Tusks is ~4x DK's height, which shrinks DK to a speck).
+
+// Donkey Kong and all five bosses share a byte-identical 35-joint skeleton, so one
+// role map drives every character. Roles read off world-space joint positions.
+const KONG = { root:'jointnode0', hips:'jointnode6', chest:'jointnode15', neck:'jointnode16',
+               head:'jointnode17', crown:'jointnode19',
+               armL:'jointnode20', elbowL:'jointnode22', handL:'jointnode24',
+               armR:'jointnode25', elbowR:'jointnode27', handR:'jointnode29',
+               legL:'jointnode7',  kneeL:'jointnode8',  legR:'jointnode11', kneeR:'jointnode12',
+               // Shoulder swing is local Y (local Z is the forward/back axis, not up/down).
+               armAxis:'y' };
+// Tusks is a different creature entirely: 24 joints, two front legs, 9-bone cannon fan.
+const TUSKS = { root:'jointnode1', chest:'jointnode1', neck:'jointnode6', head:'jointnode7',
+                armL:'jointnode2', elbowL:'jointnode3', armR:'jointnode4', elbowR:'jointnode5',
+                earL:'jointnode8', earR:'jointnode10', cannon:'jointnode12' };
+
+const M = 'models/', F6 = ['00','01','02','03','04','05'];
+// faces/extras are [file, anchorRole?]; anchorRole only matters for rigless parts.
+const kong = (name, dir, p, extras = [], armDrop) => ({
+  name, rig: KONG, dir: M + dir, body: p, armDrop,
+  faces: F6.map(s => [p + 'Face' + s, 'head']),
+  extras: extras.map(s => [p + s]) });
+
+// Faces 11, 18, 20 are the only ones with open eyes; the rest are mid-blink or squinting.
+// Lead with 11 so DK's default/idle face has open eyes, then cycle the rest for variety.
+const DK_FACE_ORDER = [11, 18, 20, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 19];
+const HERO = { name:'Donkey Kong', rig:KONG, dir:M+'DonkeyKong/Donkey Kong/', body:'Donkey Kong',
+  // barrel-chested like Sumo/Ghastly: the default arm drop sinks the arms into the
+  // belly and loses the shoulder line, so use the same reduced drop as those two.
+  armDrop: 0.72,
+  faces: DK_FACE_ORDER.map(n => [`faces/face ${n}`, 'head']),
+  // the hands are separate rigless meshes and hang off the wrist joints, not the head
+  extras: [['left hand/left hand 1', 'handL'], ['right hand/right hand 1', 'handR']],
+  // Unlike the bosses, DK's own body mesh has a closed mouth baked in (material
+  // "donkey_All(2)") — every attached face piece was a second, unaligned mouth on top
+  // of it. Hide that submesh whenever a face gets attached.
+  hideWhenFaced: ['donkey_All(2)'] };
+
+const BOSSES = [
+  kong('Dread',  'DreadKong/Dread Kong/',   'DreadKong', ['Hair']),
+  kong('Karate', 'KarateKong/Karate Kong/', 'Konfu',     ['Hair','Beard','EyeBrow']),
+  kong('Ninja',  'NinjaKong/Ninja Kong/',   'Miyamoto',  ['Hair']),
+  // armDrop: the barrel-chested two need the shoulders held out or the arms sink into
+  // the torso and the shoulder line collapses into a triangle.
+  kong('Sumo',   'SumoKong/Sumo Kong/',     'Akebono',   [], 0.72),
+  { ...kong('Ghastly', 'CactusKing_GhastlyKing/Cactus Ghastly King/', 'FinalKong', ['Wing'], 0.72),
+    faces: [['FinalKongFace', 'head']] },
+  { name:'Tusks', rig:TUSKS, dir:'Tusks/', body:'ElephantCannon', faces:[], extras:[] },
+];
+const ARM_DROP = 1.15;   // default for the leaner Kongs
+
+// ---- scene -------------------------------------------------------------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a2330);
+const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 5000);
+const r = new THREE.WebGLRenderer({antialias:true});
+r.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(r.domElement);
+scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x4a3a20, 2.2));
+const key = new THREE.DirectionalLight(0xfff0dd, 2.4); key.position.set(4, 6, 5); scene.add(key);
+const ctl = new OrbitControls(cam, r.domElement);
+
+const loader = new ColladaLoader();
+const load = url => new Promise((res, rej) => loader.load(encodeURI(url), res, undefined, rej));
+const hud = document.getElementById('hud');
+
+// Box3.setFromObject mis-measures SkinnedMesh (it uses the tiny bind-pose bounds),
+// so measure real world-space vertices instead.
+function worldBounds(root) {
+  const mn = [1e9,1e9,1e9], mx = [-1e9,-1e9,-1e9];
+  root.updateWorldMatrix(true, true);
+  root.traverse(o => { if (!o.isMesh) return;
+    const p = o.geometry.attributes.position, m = o.matrixWorld.elements;
+    for (let k = 0; k < p.count; k++) { const x = p.getX(k), y = p.getY(k), z = p.getZ(k);
+      const v = [m[0]*x+m[4]*y+m[8]*z+m[12], m[1]*x+m[5]*y+m[9]*z+m[13], m[2]*x+m[6]*y+m[10]*z+m[14]];
+      for (let j = 0; j < 3; j++) { if (v[j] < mn[j]) mn[j] = v[j]; if (v[j] > mx[j]) mx[j] = v[j]; } } });
+  return { min: mn, max: mx, size: mx.map((v, j) => v - mn[j]), ctr: mx.map((v, j) => (v + mn[j]) / 2) };
+}
+
+// The hair rips are modelled as poker-straight bone chains pointing back along -Z; the
+// game drapes them with runtime physics. Bend each bone a little (parents first, so the
+// arc accumulates) to get a hanging curve instead of a spike out the back of the head.
+const _wx = new THREE.Vector3(1, 0, 0), _ax = new THREE.Vector3(), _m = new THREE.Matrix4();
+function drape(root, totalArc) {
+  const bones = []; root.traverse(o => { if (o.isBone) bones.push(o); });
+  if (bones.length < 3) return;
+  const per = totalArc / bones.length;
+  for (const bn of bones) {
+    bn.updateWorldMatrix(true, false);
+    _ax.copy(_wx).applyMatrix4(_m.extractRotation(bn.matrixWorld).invert()).normalize();
+    bn.rotateOnAxis(_ax, per);                      // world-X bend, expressed bone-locally
+  }
+}
+
+// ---- building one character -------------------------------------------
+async function build(spec, faceIdx = 0) {
+  const group = new THREE.Group();
+  const B = {}, rest = new Map();
+  const rig = spec.rig;
+  let loaded = 0, tris = 0;
+
+  const body = await load(spec.dir + spec.body + '.dae');
+  body.scene.traverse(o => {
+    if (o.isBone && !B[o.name]) { B[o.name] = o; rest.set(o, o.quaternion.clone()); }
+    if (o.isMesh) o.frustumCulled = false; });
+  group.add(body.scene); loaded++;
+
+  if (spec.faces.length && spec.hideWhenFaced) {
+    const hide = new Set(spec.hideWhenFaced);
+    body.scene.traverse(o => { if (o.isMesh && [].concat(o.material).some(m => hide.has(m.name)))
+      o.visible = false; });
+  }
+
+  // The rip's bind pose is a T-pose. Rebase the rest map onto a natural arms-down
+  // stance; because every animation poses as rest * delta, none of them need to know.
+  if (rig.armAxis) {
+    const drop = spec.armDrop ?? ARM_DROP;
+    for (const [role, e] of [['armL', [0, -drop, 0]], ['armR', [0, drop, 0]]]) {
+      const bone = B[rig[role]]; if (!bone) continue;
+      const q = rest.get(bone).clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...e)));
+      rest.set(bone, q); bone.quaternion.copy(q);
+    }
+  }
+
+  // Add-on rips come in three flavours, told apart by their own armature:
+  //   no bones of its own  -> authored in joint-local space (faces, DK's hands) -> parent
+  //                           it to that joint
+  //   bones at body height -> already placed in model-root space (beard, eyebrows, wing,
+  //                           Ghastly's face) -> add as-is
+  //   bones all on the floor -> a straight chain authored at the origin (the hair) -> keep
+  //                           its model-space orientation, slide its root onto the head and
+  //                           drape it. Parenting it to the bone instead makes it inherit the
+  //                           bone's frame, which is why the hair shot sideways out of the neck.
+  // Testing the armature root alone is not enough: the wing's root sits at the origin even
+  // though every other bone in it is already at head height.
+  const headPos = new THREE.Vector3();
+  if (B[rig.head]) { B[rig.head].updateWorldMatrix(true, false);
+    headPos.setFromMatrixPosition(B[rig.head].matrixWorld); }   // group is still identity here
+
+  const attach = async ([file, role]) => {
+    try {
+      const c = await load(spec.dir + file + '.dae');
+      c.scene.updateWorldMatrix(true, true);
+      let bones = 0, maxY = 0;
+      c.scene.traverse(o => { if (o.isBone) { bones++;
+                                maxY = Math.max(maxY, Math.abs(o.matrixWorld.elements[13])); }
+                              if (o.isMesh) o.frustumCulled = false; });
+      const anchor = B[rig[role || 'head']];
+      if (!bones && anchor) {
+        c.scene.scale.set(1,1,1); c.scene.position.set(0,0,0); c.scene.quaternion.identity();
+        anchor.add(c.scene);
+      } else {
+        // ponytail: fixed offset, so hair does not follow head motion. Bind its root bone
+        // to the head joint per frame if the head ever animates enough to show the seam.
+        if (maxY < 0.5) { c.scene.position.copy(headPos); drape(c.scene, -1.35); }
+        group.add(c.scene);
+      }
+      loaded++;
+    } catch (err) { console.warn('attach failed', file, err); } };
+
+  if (spec.faces.length) await attach(spec.faces[faceIdx % spec.faces.length]);
+  for (const e of spec.extras) await attach(e);
+
+  group.traverse(o => { if (o.isMesh) tris +=
+    (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+  return { spec, rig, group, B, rest, loaded, tris: Math.round(tris) };
+}
+
+// ---- placing the pair --------------------------------------------------
+// side -1 puts a character on the left of the gap, +1 on the right. Both stand on y=0
+// and turn in toward the middle, so the GAP band stays completely clear.
+function place(ch, side) {
+  ch.group.position.set(0, 0, 0);
+  ch.group.scale.setScalar(1);
+  ch.group.rotation.y = -side * YAW;
+  let wb = worldBounds(ch.group);                   // measured after the yaw
+  if (TALL) { ch.group.scale.setScalar(TALL / wb.size[1]); wb = worldBounds(ch.group); }
+  ch.group.position.set(side > 0 ? GAP / 2 - wb.min[0] : -GAP / 2 - wb.max[0],
+                        -wb.min[1], -wb.ctr[2]);
+}
+
+let hero = null, foe = null, bossIdx = 0, heroFaceIdx = 0, foeFaceIdx = 0, view = null;
+
+async function layout(keepFace) {
+  for (const ch of [hero, foe]) if (ch) { scene.remove(ch.group); ch.group.traverse(o => {
+    if (o.isMesh) { o.geometry.dispose(); [].concat(o.material).forEach(m => m.dispose()); } }); }
+  if (!keepFace) { heroFaceIdx = 0; foeFaceIdx = 0; }
+  hero = await build(HERO, heroFaceIdx);
+  foe  = await build(BOSSES[bossIdx], foeFaceIdx);
+  place(hero, -1); place(foe, +1);
+  scene.add(hero.group, foe.group);
+  const a = worldBounds(hero.group), b = worldBounds(foe.group);
+  view = { min: a.min.map((v, i) => Math.min(v, b.min[i])),
+           max: a.max.map((v, i) => Math.max(v, b.max[i])) };
+  view.size = view.max.map((v, i) => v - view.min[i]);
+  view.ctr  = view.max.map((v, i) => (v + view.min[i]) / 2);
+  frame();
+  const fF = foe.spec.faces.length;
+  hud.textContent = `DK ${hero.tris} tris  |  gap ${GAP}  |  ${foe.spec.name} ${foe.tris} tris`
+    + `\nDK face ${heroFaceIdx % HERO.faces.length + 1} of ${HERO.faces.length}`
+    + (fF > 1 ? `  |  ${foe.spec.name} face ${foeFaceIdx % fF + 1} of ${fF}` : '');
+  window.__info = { hero: hero.tris, foe: foe.spec.name, view };
+}
+
+// Landscape-first: fit the pair's width to the viewport, falling back to height only on a
+// tall narrow window. Framed symmetrically about x=0 — the middle of the gap — rather than
+// about the pair's centroid, so whatever goes between them lands dead centre no matter how
+// much wider one boss is than DK. Re-runs on resize, so rotating the phone reframes.
+function frame() {
+  if (!view) return;
+  const vFov = cam.fov * Math.PI / 180;
+  const halfW = Math.max(-view.min[0], view.max[0]);
+  const distH = (view.size[1] / 2) / Math.tan(vFov / 2);
+  const distW = halfW / Math.tan(vFov / 2) / cam.aspect;
+  const d = Math.max(distH, distW) * PAD + view.size[2] / 2;
+  cam.position.set(0, view.ctr[1] + view.size[1] * 0.06, d);
+  ctl.target.set(0, view.ctr[1], 0); ctl.update();
+}
+
+// ---- posing (idle breathing only) --------------------------------------
+const E = new THREE.Euler(), Q = new THREE.Quaternion();
+function rot(ch, role, x, y, z) { const b = ch.B[ch.rig[role]]; if (!b) return;
+  b.quaternion.copy(ch.rest.get(b)).multiply(Q.setFromEuler(E.set(x, y, z))); }
+
+function pose(ch, t, phase) {
+  const rig = ch.rig;
+  for (const [b, q] of ch.rest) b.quaternion.copy(q);
+  const s = t / 1000 + phase;
+
+  rot(ch, 'chest', 0, 0, Math.sin(s * 1.6) * 0.03);
+  rot(ch, 'head', Math.sin(s * 1.6 + 1) * 0.04, Math.sin(s * 0.9) * 0.07, 0);
+  if (rig.earL) { const f = Math.sin(s * 2.4) * 0.22; rot(ch, 'earL', 0, f, 0); rot(ch, 'earR', 0, -f, 0); }
+}
+
+// ---- ui ----------------------------------------------------------------
+const top = document.getElementById('top');
+BOSSES.forEach((b, i) => { const el = document.createElement('button'); el.textContent = b.name;
+  el.onclick = () => { for (const o of top.children) o.classList.toggle('on', o === el);
+    bossIdx = i; layout(); };
+  top.appendChild(el); });
+document.getElementById('faceBtn').onclick = () => {
+  heroFaceIdx++; foeFaceIdx++; layout(true); };
+
+function fit() { const w = innerWidth || 1280, h = innerHeight || 720;
+  if (r.domElement.width !== Math.floor(w * Math.min(devicePixelRatio, 2))) {
+    r.setPixelRatio(Math.min(devicePixelRatio, 2)); r.setSize(w, h);
+    cam.aspect = w / h; cam.updateProjectionMatrix(); frame(); } }
+addEventListener('resize', fit);
+(function loop(){ requestAnimationFrame(loop); fit(); const t = performance.now();
+  // DK runs the same idle, nudged out of phase so the pair does not breathe in lockstep
+  if (hero) pose(hero, t, 1.7);
+  if (foe)  pose(foe,  t, 0);
+  ctl.update(); r.render(scene, cam); })();
+
+top.children[0].classList.add('on'); layout();
+Object.assign(window, { __cam: cam, __ctl: ctl, __hero: () => hero, __foe: () => foe, __GAP: GAP });
+
+// self-check: both characters load, stand on the same ground line, leave the gap clear,
+// and DK's face button actually cycles through his 20 expressions (not stuck on one file).
+window.__checkAll = async () => {
+  const bad = [];
+  for (let i = 0; i < BOSSES.length; i++) {
+    bossIdx = i; heroFaceIdx = 0; foeFaceIdx = 0; await layout(true);
+    const a = worldBounds(hero.group), b = worldBounds(foe.group);
+    const wantHero = 1 + 1 + HERO.extras.length;
+    const wantFoe = 1 + (foe.spec.faces.length ? 1 : 0) + foe.spec.extras.length;
+    if (hero.loaded !== wantHero) bad.push(`DK: ${hero.loaded}/${wantHero} parts`);
+    if (foe.loaded !== wantFoe) bad.push(`${foe.spec.name}: ${foe.loaded}/${wantFoe} parts`);
+    if (!hero.tris || !foe.tris) bad.push(`${foe.spec.name}: empty geometry`);
+    if (a.max[0] > -GAP / 2 + 1e-3) bad.push(`${foe.spec.name}: DK intrudes into the gap (${a.max[0].toFixed(2)})`);
+    if (b.min[0] <  GAP / 2 - 1e-3) bad.push(`${foe.spec.name}: boss intrudes into the gap (${b.min[0].toFixed(2)})`);
+    if (Math.abs(a.min[1]) > 1e-3 || Math.abs(b.min[1]) > 1e-3)
+      bad.push(`${foe.spec.name}: feet off the ground (${a.min[1].toFixed(3)}, ${b.min[1].toFixed(3)})`);
+    if (TALL && Math.abs(a.size[1] - b.size[1]) > 1e-3)
+      bad.push(`${foe.spec.name}: heights differ (DK ${a.size[1].toFixed(2)} vs ${b.size[1].toFixed(2)})`);
+    for (const k of ['chest','head','armL','armR'])
+      if (foe.rig[k] && !foe.B[foe.rig[k]]) bad.push(`${foe.spec.name}: missing ${k}`);
+  }
+  // DK's face cycling, checked once: face 0 (11) has open eyes, face 3 (1) is a different mesh.
+  bossIdx = 0; heroFaceIdx = 0; foeFaceIdx = 0; await layout(true);
+  const face0 = worldBounds(hero.group).size.slice();
+  heroFaceIdx = 3; await layout(true);
+  const face3 = worldBounds(hero.group).size;
+  if (face0.every((v, i) => Math.abs(v - face3[i]) < 1e-6)) bad.push('DK: face button had no visible effect');
+
+  bossIdx = 0; heroFaceIdx = 0; foeFaceIdx = 0; await layout();
+  console.assert(!bad.length, bad);
+  return bad.length ? bad : `all ${BOSSES.length} pairings ok, DK faces cycle`;
+};
+</script>
