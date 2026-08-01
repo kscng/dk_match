@@ -1,6 +1,6 @@
 // Bump this on any deploy that changes cached files — it's the only way old
 // clients pick up new assets, since everything below is otherwise cache-forever.
-const CACHE = 'dk-match-v1';
+const CACHE = 'dk-match-v2';
 
 // Just the app shell up front. The character/face/texture files under Tusks/ and
 // models/ (150+ of them, plus whatever three.js's addon modules import internally)
@@ -14,9 +14,13 @@ const SHELL = [
   'manifest.json',
   'icon-192.png',
   'icon-512.png',
-  'node_modules/three/build/three.module.js',
-  'node_modules/three/examples/jsm/loaders/ColladaLoader.js',
-  'node_modules/three/examples/jsm/controls/OrbitControls.js',
+  'vendor/three/build/three.module.js',
+  'vendor/three/build/three.core.js',
+  'vendor/three/examples/jsm/loaders/ColladaLoader.js',
+  'vendor/three/examples/jsm/loaders/TGALoader.js',
+  'vendor/three/examples/jsm/loaders/collada/ColladaParser.js',
+  'vendor/three/examples/jsm/loaders/collada/ColladaComposer.js',
+  'vendor/three/examples/jsm/controls/OrbitControls.js',
 ];
 
 self.addEventListener('install', e => {
