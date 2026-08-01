@@ -1,6 +1,13 @@
 <!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>DK Jungle Beat — DK vs boss</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1a2330">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DK Match">
 <style>
   body{margin:0;background:#1a2330;overflow:hidden;font:14px system-ui,-apple-system,sans-serif;color:#fff}
   #top{position:fixed;top:calc(8px + env(safe-area-inset-top));left:0;right:0;display:flex;gap:8px;
@@ -321,4 +328,9 @@ window.__checkAll = async () => {
   console.assert(!bad.length, bad);
   return bad.length ? bad : `all ${BOSSES.length} pairings ok, DK faces cycle`;
 };
+</script>
+<script>
+  // Registered outside the module script since SW registration doesn't need to be one.
+  // Runs on http(s) as well as plain http on localhost — both count as a secure context.
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
 </script>
