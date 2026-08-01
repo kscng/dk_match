@@ -1,6 +1,6 @@
 // Bump this on any deploy that changes cached files — it's the only way old
 // clients pick up new assets, since everything below is otherwise cache-forever.
-const CACHE = 'dk-match-v2';
+const CACHE = 'dk-match-v3';
 
 // Just the app shell up front. The character/face/texture files under Tusks/ and
 // models/ (150+ of them, plus whatever three.js's addon modules import internally)
@@ -9,7 +9,11 @@ const CACHE = 'dk-match-v2';
 // is always uncontrolled (the browser spec doesn't let a SW intercept the load that
 // installs it), so those fetches land in cache the moment the second load happens.
 const SHELL = [
-  './',
+  // No index.html in this project (demo.html is the real entry point), so './'
+  // 404s here — and one failing URL fails cache.addAll() for the *entire* install,
+  // silently discarding the whole registration. Learned that the hard way: it
+  // passed locally because Python's http.server shows a directory listing for '/'
+  // instead of 404ing, masking the bug until it hit the real GitHub Pages host.
   'demo.html',
   'manifest.json',
   'icon-192.png',
