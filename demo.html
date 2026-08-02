@@ -94,7 +94,10 @@ const ARM_DROP = 1.15;   // default for the leaner Kongs
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a2330);
 const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 5000);
-const r = new THREE.WebGLRenderer({antialias:true});
+// preserveDrawingBuffer: without it, reading the canvas (screenshots, toDataURL) between
+// rAF ticks can catch a cleared back-buffer even though rendering itself is running fine
+// every frame — doesn't affect what a real display shows, only matters for capturing it.
+const r = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
 r.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(r.domElement);
 scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x4a3a20, 2.2));
@@ -236,11 +239,35 @@ async function layout(keepFace) {
   view.size = view.max.map((v, i) => v - view.min[i]);
   view.ctr  = view.max.map((v, i) => (v + view.min[i]) / 2);
   frame();
+  updateHud();
+  window.__info = { hero: hero.tris, foe: foe.spec.name, view };
+}
+
+function updateHud() {
   const fF = foe.spec.faces.length;
   hud.textContent = `DK ${hero.tris} tris  |  gap ${GAP}  |  ${foe.spec.name} ${foe.tris} tris`
     + `\nDK face ${heroFaceIdx % HERO.faces.length + 1} of ${HERO.faces.length}`
     + (fF > 1 ? `  |  ${foe.spec.name} face ${foeFaceIdx % fF + 1} of ${fF}` : '');
-  window.__info = { hero: hero.tris, foe: foe.spec.name, view };
+}
+
+// Swaps just the face mesh on an already-built character — used by the face button so the
+// body/bones/hands never leave the scene. The full layout() rebuild (still used for switching
+// characters) disposes and reloads everything, so the model is briefly gone from the scene
+// while the network/cache round-trip happens; over a real connection that gap is visible,
+// which is exactly the flash the face button used to cause. Loading the replacement fully
+// before touching the old one means there is never a frame with no face attached.
+async function swapFace(ch, idx) {
+  const head = ch.B[ch.rig.head];
+  if (!head || ch.spec.faces.length <= 1) return;      // nothing else to cycle to
+  const [file] = ch.spec.faces[idx % ch.spec.faces.length];
+  const c = await load(ch.spec.dir + file + '.dae');
+  c.scene.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+  c.scene.scale.set(1, 1, 1); c.scene.position.set(0, 0, 0); c.scene.quaternion.identity();
+  head.children.filter(o => !o.isBone).forEach(o => {
+    head.remove(o);
+    o.traverse(m => { if (m.isMesh) { m.geometry.dispose(); [].concat(m.material).forEach(mm => mm.dispose()); } });
+  });
+  head.add(c.scene);
 }
 
 // Landscape-first: fit the pair's width to the viewport, falling back to height only on a
@@ -279,8 +306,11 @@ BOSSES.forEach((b, i) => { const el = document.createElement('button'); el.textC
   el.onclick = () => { for (const o of top.children) o.classList.toggle('on', o === el);
     bossIdx = i; layout(); };
   top.appendChild(el); });
-document.getElementById('faceBtn').onclick = () => {
-  heroFaceIdx++; foeFaceIdx++; layout(true); };
+document.getElementById('faceBtn').onclick = async () => {
+  heroFaceIdx++; foeFaceIdx++;
+  await Promise.all([swapFace(hero, heroFaceIdx), swapFace(foe, foeFaceIdx)]);
+  updateHud();
+};
 
 function fit() { const w = innerWidth || 1280, h = innerHeight || 720;
   if (r.domElement.width !== Math.floor(w * Math.min(devicePixelRatio, 2))) {
@@ -317,12 +347,21 @@ window.__checkAll = async () => {
     for (const k of ['chest','head','armL','armR'])
       if (foe.rig[k] && !foe.B[foe.rig[k]]) bad.push(`${foe.spec.name}: missing ${k}`);
   }
-  // DK's face cycling, checked once: face 0 (11) has open eyes, face 3 (1) is a different mesh.
-  bossIdx = 0; heroFaceIdx = 0; foeFaceIdx = 0; await layout(true);
-  const face0 = worldBounds(hero.group).size.slice();
-  heroFaceIdx = 3; await layout(true);
-  const face3 = worldBounds(hero.group).size;
-  if (face0.every((v, i) => Math.abs(v - face3[i]) < 1e-6)) bad.push('DK: face button had no visible effect');
+  // DK's actual face button (swapFace, not the full layout() rebuild) must: (a) swap in
+  // different geometry each time, and (b) never detach the character from the scene while
+  // doing it — that detach-and-rebuild was the original flash bug this replaced. A whole-body
+  // bounding box is a bad proxy for "the face changed" (arms/legs dominate it, a mouth shape
+  // barely moves it — this flickered pass/fail across reruns before), so compare vertex count
+  // on the head bone's own attachment directly instead.
+  bossIdx = 0; heroFaceIdx = 0; foeFaceIdx = 0; await layout();
+  const headBone = hero.B[hero.rig.head];
+  const vertsOf = () => { let v = 0; headBone.children.filter(o => !o.isBone)
+    .forEach(o => o.traverse(m => { if (m.isMesh) v += m.geometry.attributes.position.count; })); return v; };
+  const stillParented = () => !!hero.group.parent && !!foe.group.parent;
+  const before = vertsOf();
+  await swapFace(hero, 3);
+  if (!stillParented()) bad.push('DK: face swap removed the character from the scene (flash bug)');
+  if (vertsOf() === before) bad.push('DK: face button did not change geometry');
 
   bossIdx = 0; heroFaceIdx = 0; foeFaceIdx = 0; await layout();
   console.assert(!bad.length, bad);
