@@ -378,8 +378,14 @@ window.__checkAll = async () => {
     // needing a manual reload — but the tab that was already open keeps running the OLD
     // page's JS until it reloads once. Do that reload automatically so a deploy actually
     // reaches an already-open tab instead of silently sitting there until someone notices.
-    let reloaded = false;
+    // controllerchange also fires on a page's very first activation (no controller -> one),
+    // not just on a real old-SW -> new-SW update — reloading unconditionally meant every
+    // fresh install triggered a surprise reload mid-launch, which is a likely reason an
+    // Android "Add to Home Screen" install opened to nothing. Only reload when a controller
+    // is actually being replaced.
+    let hadController = !!navigator.serviceWorker.controller, reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) { hadController = true; return; }
       if (reloaded) return; reloaded = true; location.reload();
     });
     const reg = async () => {
