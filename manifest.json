@@ -1,7 +1,7 @@
 {
   "name": "DK Match",
   "short_name": "DK Match",
-  "start_url": "demo.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "landscape",

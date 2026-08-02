@@ -1,7 +1,7 @@
 // Bump this on any deploy that changes cached files. Necessary but no longer sufficient on
-// its own for demo.html/sw.js themselves — see the network-first note below; this still
+// its own for index.html/sw.js themselves — see the network-first note below; this still
 // matters for forcing model/texture assets to refresh if one of those ever changes.
-const CACHE = 'dk-match-v4';
+const CACHE = 'dk-match-v5';
 
 // Just the app shell up front. The character/face/texture files under Tusks/ and
 // models/ (150+ of them, plus whatever three.js's addon modules import internally)
@@ -10,12 +10,12 @@ const CACHE = 'dk-match-v4';
 // is always uncontrolled (the browser spec doesn't let a SW intercept the load that
 // installs it), so those fetches land in cache the moment the second load happens.
 const SHELL = [
-  // No index.html in this project (demo.html is the real entry point), so './'
-  // 404s here — and one failing URL fails cache.addAll() for the *entire* install,
-  // silently discarding the whole registration. Learned that the hard way: it
-  // passed locally because Python's http.server shows a directory listing for '/'
-  // instead of 404ing, masking the bug until it hit the real GitHub Pages host.
-  'demo.html',
+  // Precache both the bare directory URL and the filename: a normal visit requests
+  // './' (that's what start_url and the GitHub Pages link resolve to), but someone
+  // could also land on '/index.html' directly — different cache keys for the same
+  // file, and only the one actually requested offline will hit without both listed.
+  './',
+  'index.html',
   'manifest.json',
   'icon-192.png',
   'icon-512.png',
@@ -39,8 +39,8 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
-// Navigations (i.e. demo.html itself) are network-first: cache-first here was the actual
-// bug behind "it still flashes after the fix ships" — once demo.html was cached, this SW
+// Navigations (i.e. index.html itself) are network-first: cache-first here was the actual
+// bug behind "it still flashes after the fix ships" — once the page was cached, this SW
 // would keep serving that exact copy forever and never notice a new deploy existed, no
 // matter how many times the file changed on the server. Model/texture assets stay
 // cache-first below: they never change once ripped, and cache-first is what makes them
@@ -55,7 +55,7 @@ self.addEventListener('fetch', e => {
         if (res.ok) (await caches.open(CACHE)).put(e.request, res.clone());
         return res;
       } catch (err) {
-        return (await caches.match(e.request)) || caches.match('demo.html');
+        return (await caches.match(e.request)) || caches.match('index.html');
       }
     })());
     return;
