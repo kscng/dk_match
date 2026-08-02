@@ -1,6 +1,7 @@
-// Bump this on any deploy that changes cached files — it's the only way old
-// clients pick up new assets, since everything below is otherwise cache-forever.
-const CACHE = 'dk-match-v3';
+// Bump this on any deploy that changes cached files. Necessary but no longer sufficient on
+// its own for demo.html/sw.js themselves — see the network-first note below; this still
+// matters for forcing model/texture assets to refresh if one of those ever changes.
+const CACHE = 'dk-match-v4';
 
 // Just the app shell up front. The character/face/texture files under Tusks/ and
 // models/ (150+ of them, plus whatever three.js's addon modules import internally)
@@ -38,21 +39,33 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
-// Cache-first, falling back to network — and caching whatever the network returns
-// so the next load (even offline) has it. Only same-origin GETs are handled; anything
-// else (there shouldn't be any — no CDN, no API calls) passes straight through untouched.
+// Navigations (i.e. demo.html itself) are network-first: cache-first here was the actual
+// bug behind "it still flashes after the fix ships" — once demo.html was cached, this SW
+// would keep serving that exact copy forever and never notice a new deploy existed, no
+// matter how many times the file changed on the server. Model/texture assets stay
+// cache-first below: they never change once ripped, and cache-first is what makes them
+// load instantly offline instead of round-tripping the network on every visit.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+
+  if (e.request.mode === 'navigate') {
+    e.respondWith((async () => {
+      try {
+        const res = await fetch(e.request);
+        if (res.ok) (await caches.open(CACHE)).put(e.request, res.clone());
+        return res;
+      } catch (err) {
+        return (await caches.match(e.request)) || caches.match('demo.html');
+      }
+    })());
+    return;
+  }
+
   e.respondWith((async () => {
     const cached = await caches.match(e.request);
     if (cached) return cached;
-    try {
-      const res = await fetch(e.request);
-      if (res.ok) (await caches.open(CACHE)).put(e.request, res.clone());
-      return res;
-    } catch (err) {
-      if (e.request.mode === 'navigate') return caches.match('demo.html');
-      throw err;
-    }
+    const res = await fetch(e.request);
+    if (res.ok) (await caches.open(CACHE)).put(e.request, res.clone());
+    return res;
   })());
 });

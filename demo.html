@@ -374,7 +374,18 @@ window.__checkAll = async () => {
   // Waiting on 'load' can register too late if it already fired by the time this runs
   // (observed on some navigations), so register immediately whenever that's already true.
   if ('serviceWorker' in navigator) {
-    const reg = () => navigator.serviceWorker.register('sw.js');
+    // A new SW takes over (skipWaiting + clients.claim, both already set in sw.js) without
+    // needing a manual reload — but the tab that was already open keeps running the OLD
+    // page's JS until it reloads once. Do that reload automatically so a deploy actually
+    // reaches an already-open tab instead of silently sitting there until someone notices.
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloaded) return; reloaded = true; location.reload();
+    });
+    const reg = async () => {
+      const r = await navigator.serviceWorker.register('sw.js');
+      r.update();   // check for a newer sw.js right away instead of waiting on the browser's own schedule
+    };
     document.readyState === 'complete' ? reg() : addEventListener('load', reg);
   }
 </script>
