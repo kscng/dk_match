@@ -12,18 +12,51 @@
   body{margin:0;background:#1a2330;overflow:hidden;font:14px system-ui,-apple-system,sans-serif;color:#fff}
   #top{position:fixed;top:calc(8px + env(safe-area-inset-top));left:0;right:0;display:flex;gap:8px;
        justify-content:center;flex-wrap:wrap;padding:0 10px;z-index:2}
-  #ui{position:fixed;bottom:0;left:0;right:0;padding:10px calc(12px + env(safe-area-inset-left)) calc(10px + env(safe-area-inset-bottom));
-      display:flex;gap:8px;flex-wrap:wrap;justify-content:center;z-index:2}
+  /* Sits noticeably above the bare bottom edge — closer to the characters' hand height so
+     it's an easy thumb-reach on a real phone instead of stranded at the screen edge. */
+  #ui{position:fixed;bottom:calc(9% + env(safe-area-inset-bottom));left:0;right:0;
+      padding:0 calc(12px + env(safe-area-inset-left));
+      display:flex;flex-direction:column;align-items:center;gap:12px;z-index:2}
   button{flex:0 1 auto;min-width:74px;padding:10px 13px;border:0;border-radius:10px;background:#e86a3a;color:#fff;
          font:600 13px system-ui;-webkit-tap-highlight-color:transparent}
   #top button{background:#33465e}
   #top button.on{background:#e8b13a;color:#20170a}
+  #top button.locked{opacity:.45}
   button:active{transform:scale(.96)}
-  #hud{position:fixed;left:10px;bottom:56px;font:11px ui-monospace,monospace;opacity:.55;white-space:pre;pointer-events:none}
+  #hud{position:fixed;left:10px;bottom:calc(6px + env(safe-area-inset-bottom));font:11px ui-monospace,monospace;
+       opacity:.55;white-space:pre;pointer-events:none;z-index:2}
+
+  /* ---- match game ----
+     #bossPattern and #slots are positioned every frame in JS (positionOverlays()), tracking
+     the actual projected screen position of each character's head bone — not a guessed fixed
+     corner — so they always sit right above DK/the boss no matter the boss's proportions or
+     the camera framing. Both anchor from their bottom-center (transform below) at the (left,top)
+     point JS sets, which is already lifted above the head. */
+  #bossPattern,#slots{position:fixed;transform:translate(-50%,-100%);z-index:2;display:flex;gap:8px;
+                      padding:8px 14px;border-radius:16px;background:#00000066}
+  #bossPattern{font-size:clamp(30px,7.5vh,56px)}
+  #timerWrap{width:min(90vw,460px);height:12px;background:#ffffff22;border-radius:7px;overflow:hidden}
+  #timerFill{height:100%;width:100%;background:#e8b13a;transition:width .15s linear}
+  #timerFill.low{background:#e04b4b}
+  .slot{width:clamp(46px,10vh,68px);height:clamp(46px,10vh,68px);border:3px dashed #ffffff66;border-radius:14px;
+        display:flex;align-items:center;justify-content:center;font-size:clamp(26px,6.5vh,44px)}
+  .slot.filled{border-style:solid;border-color:#e8b13a;background:#e8b13a22}
+  #palette{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;max-width:min(96vw,640px)}
+  #palette button{font-size:clamp(26px,6.5vh,40px);padding:12px 16px;min-width:64px;min-height:64px;background:#33465e}
+  #palette button:disabled{opacity:.2}
+  #palette button.wrong{animation:shake .3s}
+  @keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  #msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:clamp(22px,5vh,34px);
+       font-weight:700;background:#000000b0;padding:14px 24px;border-radius:16px;opacity:0;
+       transition:opacity .25s;pointer-events:none;z-index:5;text-align:center;white-space:nowrap}
 </style>
 <div id="top"></div>
+<div id="bossPattern"></div>
+<div id="slots"></div>
+<div id="msg"></div>
 <div id="ui">
-  <button id="faceBtn">face</button>
+  <div id="timerWrap"><div id="timerFill"></div></div>
+  <div id="palette"></div>
 </div>
 <div id="hud">loading…</div>
 
@@ -32,6 +65,23 @@
 import * as THREE from 'three';
 import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---- match game knobs ---------------------------------------------------
+// Emoji stand in for real artwork for now — swap EMOJI_POOL for image tiles later without
+// touching any of the game logic below, since a "tile" is just whatever renders in a slot
+// or palette button.
+const EMOJI_POOL = ['🍌','🍎','🍇','🍊','🍓','🥝','🍉','🍒','🥥','🍍','🥭','🍑'];
+// level = bossIdx*3 + subround (0-based, 18 levels across the whole game). Each formula is
+// clamped so a 6-year-old always has a fair shot even on the last boss's last subround.
+const patternLenFor  = level => Math.min(6, Math.max(3, 3 + Math.floor(level / 3)));
+const distractorsFor = level => Math.min(5, Math.max(2, 2 + Math.floor(level / 4)));
+const durationFor    = level => Math.min(30, Math.max(15, 30 - level));   // seconds
+
+const PROGRESS_KEY = 'dkmatch-progress-v1';
+const loadUnlocked = () => { try { const n = JSON.parse(localStorage.getItem(PROGRESS_KEY));
+  return (typeof n === 'number' && n >= 0) ? n : 0; } catch { return 0; } };
+const saveUnlocked = n => { try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(n)); } catch {} };
+const HEAD_LIFT = 46;   // px above the projected head position the pattern/slots panels float
 
 // ---- layout knobs ------------------------------------------------------
 const GAP = 3.4;    // clear world units between the two characters — the board goes here
@@ -77,7 +127,10 @@ const HERO = { name:'Donkey Kong', rig:KONG, dir:M+'DonkeyKong/Donkey Kong/', bo
   // of it. Hide that submesh whenever a face gets attached.
   hideWhenFaced: ['donkey_All(2)'] };
 
+// Progression order (index = unlock order, and bossIdx*3+subround = the difficulty level
+// fed to makeRound — so this order is also the game's difficulty curve).
 const BOSSES = [
+  { name:'Tusks', rig:TUSKS, dir:'Tusks/', body:'ElephantCannon', faces:[], extras:[] },
   kong('Dread',  'DreadKong/Dread Kong/',   'DreadKong', ['Hair']),
   kong('Karate', 'KarateKong/Karate Kong/', 'Konfu',     ['Hair','Beard','EyeBrow']),
   kong('Ninja',  'NinjaKong/Ninja Kong/',   'Miyamoto',  ['Hair']),
@@ -86,7 +139,6 @@ const BOSSES = [
   kong('Sumo',   'SumoKong/Sumo Kong/',     'Akebono',   [], 0.72),
   { ...kong('Ghastly', 'CactusKing_GhastlyKing/Cactus Ghastly King/', 'FinalKong', ['Wing'], 0.72),
     faces: [['FinalKongFace', 'head']] },
-  { name:'Tusks', rig:TUSKS, dir:'Tusks/', body:'ElephantCannon', faces:[], extras:[] },
 ];
 const ARM_DROP = 1.15;   // default for the leaner Kongs
 
@@ -224,6 +276,11 @@ function place(ch, side) {
 }
 
 let hero = null, foe = null, bossIdx = 0, heroFaceIdx = 0, foeFaceIdx = 0, view = null;
+let unlockedUpTo = loadUnlocked();
+// subround: 0,1,2 within the current boss. round: {pattern, palette, duration} for the
+// pattern currently in play. Not persisted — reopening the app restarts the current boss
+// at subround 1; only which bosses are *unlocked* survives a reload.
+let subround = 0, round = null, slots = [], roundEnd = 0, playState = 'idle', advanceTimer = null;
 
 async function layout(keepFace) {
   for (const ch of [hero, foe]) if (ch) { scene.remove(ch.group); ch.group.traverse(o => {
@@ -239,15 +296,13 @@ async function layout(keepFace) {
   view.size = view.max.map((v, i) => v - view.min[i]);
   view.ctr  = view.max.map((v, i) => (v + view.min[i]) / 2);
   frame();
-  updateHud();
   window.__info = { hero: hero.tris, foe: foe.spec.name, view };
+  subround = 0;
+  startRound();
 }
 
 function updateHud() {
-  const fF = foe.spec.faces.length;
-  hud.textContent = `DK ${hero.tris} tris  |  gap ${GAP}  |  ${foe.spec.name} ${foe.tris} tris`
-    + `\nDK face ${heroFaceIdx % HERO.faces.length + 1} of ${HERO.faces.length}`
-    + (fF > 1 ? `  |  ${foe.spec.name} face ${foeFaceIdx % fF + 1} of ${fF}` : '');
+  hud.textContent = `${foe.spec.name}  ·  subround ${subround + 1}/3  ·  level ${bossIdx * 3 + subround + 1}`;
 }
 
 // Swaps just the face mesh on an already-built character — used by the face button so the
@@ -270,6 +325,132 @@ async function swapFace(ch, idx) {
   head.add(c.scene);
 }
 
+// ---- match game ----------------------------------------------------------
+// The boss's target pattern is a fixed, always-visible row of emoji (no memorising a
+// flashed sequence — that's a much harder game than "match what you see", and this one's
+// for a 6-year-old). The player taps palette tiles to fill slots left-to-right; each tap
+// is checked against just the next empty slot, so a correct answer locks in immediately
+// and a wrong one simply bounces — no punishing "start the whole pattern over" moment.
+// Only running out of time fails the round, and failing just re-rolls a fresh pattern at
+// the same subround rather than costing any progress.
+const bossPatternEl = document.getElementById('bossPattern');
+const timerFillEl = document.getElementById('timerFill');
+const slotsEl = document.getElementById('slots');
+const paletteEl = document.getElementById('palette');
+const msgEl = document.getElementById('msg');
+
+function shuffle(arr) { const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a; }
+
+function makeRound(level) {
+  const len = patternLenFor(level), extra = distractorsFor(level);
+  const pool = shuffle(EMOJI_POOL);
+  return { pattern: pool.slice(0, len), palette: shuffle(pool.slice(0, len + extra)),
+           duration: durationFor(level) };
+}
+
+let msgTimer = null;
+function showMessage(text, ms) {
+  msgEl.textContent = text; msgEl.style.opacity = '1';
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => { msgEl.style.opacity = '0'; }, ms);
+}
+
+function renderPattern() { bossPatternEl.textContent = round.pattern.join(' '); }
+
+function renderSlots() {
+  slotsEl.innerHTML = '';
+  slots.forEach(s => { const d = document.createElement('div'); d.className = 'slot' + (s ? ' filled' : '');
+    d.textContent = s || ''; slotsEl.appendChild(d); });
+}
+
+function renderPalette() {
+  paletteEl.innerHTML = '';
+  round.palette.forEach(emoji => { const b = document.createElement('button'); b.textContent = emoji;
+    b.onclick = () => onPaletteTap(emoji, b); paletteEl.appendChild(b); });
+}
+
+// level is boss-relative (0..2 for subround) combined with bossIdx so difficulty climbs
+// smoothly across the whole game, not just within one boss's three subrounds.
+function startRound() {
+  const level = bossIdx * 3 + subround;
+  round = makeRound(level);
+  slots = round.pattern.map(() => null);
+  roundEnd = performance.now() + round.duration * 1000;
+  playState = 'playing';
+  renderPattern(); renderSlots(); renderPalette(); updateHud();
+}
+
+// async + returns onRoundWin()'s promise on the winning tap purely so the self-check can
+// await a full round's outcome (face swap included); a real onclick ignores the return
+// value, so this changes nothing about how a player experiences it.
+async function onPaletteTap(emoji, btn) {
+  if (playState !== 'playing' || btn.disabled) return;
+  const idx = slots.findIndex(s => s === null);
+  if (idx === -1) return;
+  if (emoji === round.pattern[idx]) {
+    slots[idx] = emoji; btn.disabled = true; renderSlots();
+    if (slots.every(s => s !== null)) return onRoundWin();
+  } else {
+    btn.classList.add('wrong'); setTimeout(() => btn.classList.remove('wrong'), 300);
+  }
+}
+
+// Drives the real onPaletteTap path (not internal state directly) so the self-check
+// exercises exactly what a tap does. Returns false if a required tile isn't on screen.
+async function autoWinRound() {
+  for (const emoji of round.pattern) {
+    const btn = [...paletteEl.children].find(b => b.textContent === emoji && !b.disabled);
+    if (!btn) return false;
+    await onPaletteTap(emoji, btn);
+  }
+  return true;
+}
+
+// Never repeats the boss's current face by chance — always a visibly different reaction.
+function randomOtherFace(current, len) {
+  if (len <= 1) return 0;
+  let n; do { n = Math.floor(Math.random() * len); } while (n === current % len);
+  return n;
+}
+
+async function onRoundWin() {
+  playState = 'won';
+  foeFaceIdx = randomOtherFace(foeFaceIdx, foe.spec.faces.length);
+  await swapFace(foe, foeFaceIdx);
+  subround++;
+  if (subround >= 3) {
+    const isLast = bossIdx === BOSSES.length - 1;
+    if (!isLast && bossIdx === unlockedUpTo) { unlockedUpTo = bossIdx + 1; saveUnlocked(unlockedUpTo); renderBossButtons(); }
+    showMessage(isLast ? '🏆 You beat them all!' : `🎉 ${foe.spec.name} defeated!`, 2200);
+    subround = 0;                    // replaying this boss later starts fresh at subround 1
+    playState = 'boss-defeated';
+    updateHud();
+    // Auto-advance once the win message has had time to land — kept cancellable (see
+    // advanceTimer) so the self-check's simulated playthrough can't leave a stray jump
+    // pending after it restores bossIdx back to whatever the real player was on.
+    if (!isLast) advanceTimer = setTimeout(() => { bossIdx++; renderBossButtons(); layout(); }, 2200);
+  } else {
+    showMessage('✅ Nice!', 900);
+    startRound();
+  }
+}
+
+function onTimeout() {
+  if (playState !== 'playing') return;
+  playState = 'timeout';
+  showMessage('⏰ Try again!', 1000);
+  setTimeout(startRound, 1000);      // fresh pattern, same subround — no progress lost
+}
+
+function updateTimer(t) {
+  const remain = Math.max(0, roundEnd - t), pct = remain / (round.duration * 1000);
+  timerFillEl.style.width = (pct * 100) + '%';
+  timerFillEl.classList.toggle('low', pct < 0.25);
+  if (remain <= 0) onTimeout();
+}
+
 // Landscape-first: fit the pair's width to the viewport, falling back to height only on a
 // tall narrow window. Framed symmetrically about x=0 — the middle of the gap — rather than
 // about the pair's centroid, so whatever goes between them lands dead centre no matter how
@@ -283,6 +464,26 @@ function frame() {
   const d = Math.max(distH, distW) * PAD + view.size[2] / 2;
   cam.position.set(0, view.ctr[1] + view.size[1] * 0.06, d);
   ctl.target.set(0, view.ctr[1], 0); ctl.update();
+}
+
+// Projects a character's head bone to screen space so the pattern/slots panel can float
+// right above it — reading the actual bone position (not a guessed fixed corner) means
+// this stays correct regardless of a boss's proportions, camera distance, or window size.
+const _headV = new THREE.Vector3();
+function screenPosOf(ch) {
+  const head = ch && ch.B[ch.rig.head]; if (!head) return null;
+  head.getWorldPosition(_headV).project(cam);
+  return { x: (_headV.x * 0.5 + 0.5) * innerWidth, y: (1 - (_headV.y * 0.5 + 0.5)) * innerHeight };
+}
+
+// Clamped so the panel never renders under the boss-selector row on a short viewport, even
+// if a particular head projects unusually high on screen.
+function positionOverlays() {
+  const minTop = 74;
+  const dk = screenPosOf(hero);
+  if (dk) { slotsEl.style.left = dk.x + 'px'; slotsEl.style.top = Math.max(minTop, dk.y - HEAD_LIFT) + 'px'; }
+  const bp = screenPosOf(foe);
+  if (bp) { bossPatternEl.style.left = bp.x + 'px'; bossPatternEl.style.top = Math.max(minTop, bp.y - HEAD_LIFT) + 'px'; }
 }
 
 // ---- posing (idle breathing only) --------------------------------------
@@ -301,16 +502,28 @@ function pose(ch, t, phase) {
 }
 
 // ---- ui ----------------------------------------------------------------
+// Boss buttons double as the progression gate: a boss past unlockedUpTo is disabled and
+// tapping it just explains why instead of silently doing nothing (a locked icon with zero
+// feedback is confusing for a 6-year-old — better to say what to do about it). Re-rendered
+// (not just re-styled) on every unlock and every switch, so both the lock state and the
+// current-selection highlight always match what's actually true.
 const top = document.getElementById('top');
-BOSSES.forEach((b, i) => { const el = document.createElement('button'); el.textContent = b.name;
-  el.onclick = () => { for (const o of top.children) o.classList.toggle('on', o === el);
-    bossIdx = i; layout(); };
-  top.appendChild(el); });
-document.getElementById('faceBtn').onclick = async () => {
-  heroFaceIdx++; foeFaceIdx++;
-  await Promise.all([swapFace(hero, heroFaceIdx), swapFace(foe, foeFaceIdx)]);
-  updateHud();
-};
+function renderBossButtons() {
+  top.innerHTML = '';
+  BOSSES.forEach((b, i) => {
+    const el = document.createElement('button');
+    const locked = i > unlockedUpTo;
+    el.textContent = locked ? `🔒 ${b.name}` : b.name;
+    if (locked) el.classList.add('locked');
+    if (i === bossIdx) el.classList.add('on');
+    el.onclick = () => {
+      if (i > unlockedUpTo) { showMessage(`🔒 Defeat ${BOSSES[i - 1].name} first!`, 1400); return; }
+      clearTimeout(advanceTimer);   // a manual switch overrides any pending post-win auto-advance
+      bossIdx = i; renderBossButtons(); layout();
+    };
+    top.appendChild(el);
+  });
+}
 
 function fit() { const w = innerWidth || 1280, h = innerHeight || 720;
   if (r.domElement.width !== Math.floor(w * Math.min(devicePixelRatio, 2))) {
@@ -319,11 +532,12 @@ function fit() { const w = innerWidth || 1280, h = innerHeight || 720;
 addEventListener('resize', fit);
 (function loop(){ requestAnimationFrame(loop); fit(); const t = performance.now();
   // DK runs the same idle, nudged out of phase so the pair does not breathe in lockstep
-  if (hero) pose(hero, t, 1.7);
-  if (foe)  pose(foe,  t, 0);
-  ctl.update(); r.render(scene, cam); })();
+  if (hero) { pose(hero, t, 1.7); hero.group.updateMatrixWorld(true); }
+  if (foe)  { pose(foe,  t, 0);   foe.group.updateMatrixWorld(true); }
+  if (playState === 'playing') updateTimer(t);
+  ctl.update(); positionOverlays(); r.render(scene, cam); })();
 
-top.children[0].classList.add('on'); layout();
+renderBossButtons(); layout();
 Object.assign(window, { __cam: cam, __ctl: ctl, __hero: () => hero, __foe: () => foe, __GAP: GAP });
 
 // self-check: both characters load, stand on the same ground line, leave the gap clear,
@@ -363,9 +577,58 @@ window.__checkAll = async () => {
   if (!stillParented()) bad.push('DK: face swap removed the character from the scene (flash bug)');
   if (vertsOf() === before) bad.push('DK: face button did not change geometry');
 
+  // ---- match game: pattern generation, progress persistence, and a real playthrough ----
+  // Never leave the player's actual save data clobbered by running this check.
+  const savedLocal = localStorage.getItem(PROGRESS_KEY);
+  const savedUnlocked = unlockedUpTo, savedBossIdx = bossIdx, savedSubround = subround;
+  try {
+    for (let lvl = 0; lvl < 18; lvl++) {
+      const rd = makeRound(lvl);
+      if (rd.pattern.length < 3 || rd.pattern.length > 6) bad.push(`level ${lvl}: pattern length ${rd.pattern.length}`);
+      if (rd.duration < 15 || rd.duration > 30) bad.push(`level ${lvl}: duration ${rd.duration}`);
+      if (new Set(rd.palette).size !== rd.palette.length) bad.push(`level ${lvl}: duplicate palette tiles`);
+      if (!rd.pattern.every(e => rd.palette.includes(e))) bad.push(`level ${lvl}: pattern tile missing from palette`);
+    }
+
+    saveUnlocked(7);
+    if (loadUnlocked() !== 7) bad.push('progress: did not round-trip through localStorage');
+
+    // A real playthrough: win boss 0's three subrounds via the actual tap handler and
+    // confirm it (a) advances the subround counter, (b) changes the boss's face each time
+    // rather than re-picking the same one, and (c) unlocks boss 1 only once the third
+    // subround is actually won — not before.
+    unlockedUpTo = 0; bossIdx = 0; renderBossButtons(); await layout();
+    for (let sr = 0; sr < 3; sr++) {
+      const headBone = foe.B[foe.rig.head];
+      const vertsOf = () => { let v = 0; headBone.children.filter(o => !o.isBone)
+        .forEach(o => o.traverse(m => { if (m.isMesh) v += m.geometry.attributes.position.count; })); return v; };
+      const beforeVerts = vertsOf(), beforeSubround = subround;
+      if (!await autoWinRound()) { bad.push(`playthrough: no palette button for a pattern tile at subround ${sr}`); break; }
+      if (subround === beforeSubround) bad.push(`playthrough: subround ${sr} did not advance`);
+      if (foe.spec.faces.length > 1 && vertsOf() === beforeVerts)
+        bad.push(`playthrough: boss face did not change after subround ${sr}`);
+    }
+    if (unlockedUpTo !== 1) bad.push(`playthrough: defeating boss 0 should unlock boss 1, got unlockedUpTo=${unlockedUpTo}`);
+    if (JSON.parse(localStorage.getItem(PROGRESS_KEY)) !== 1) bad.push('playthrough: unlock did not persist to localStorage');
+
+    // A locked boss must actually refuse the click (not just look disabled).
+    unlockedUpTo = 0; renderBossButtons();
+    const lockedBtn = top.children[2];
+    const bossIdxBefore = bossIdx;
+    lockedBtn.onclick();
+    if (bossIdx !== bossIdxBefore) bad.push('locked boss: click switched characters anyway');
+  } finally {
+    // Defeating boss 0 above schedules a real auto-advance (2.2s out) — cancel it before
+    // it can fire against whatever boss the real player was actually on.
+    clearTimeout(advanceTimer);
+    if (savedLocal === null) localStorage.removeItem(PROGRESS_KEY); else localStorage.setItem(PROGRESS_KEY, savedLocal);
+    unlockedUpTo = savedUnlocked; bossIdx = savedBossIdx; subround = savedSubround;
+    renderBossButtons();
+  }
+
   bossIdx = 0; heroFaceIdx = 0; foeFaceIdx = 0; await layout();
   console.assert(!bad.length, bad);
-  return bad.length ? bad : `all ${BOSSES.length} pairings ok, DK faces cycle`;
+  return bad.length ? bad : `all ${BOSSES.length} pairings ok, DK faces cycle, match game verified`;
 };
 </script>
 <script>
