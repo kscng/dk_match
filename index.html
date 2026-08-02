@@ -394,4 +394,13 @@ window.__checkAll = async () => {
     };
     document.readyState === 'complete' ? reg() : addEventListener('load', reg);
   }
+  // manifest.json used to hard-lock orientation to landscape; on some Android devices an
+  // installed PWA whose Activity is forced into an orientation conflicting with the
+  // device's rotation-lock state fails to open at all — plausibly why the installed icon
+  // opened to nothing. This is the same intent (game is designed for landscape) but as a
+  // best-effort request that simply does nothing if it's unsupported or refused, instead
+  // of a hard native-level restriction that can block the app from launching.
+  if (matchMedia('(display-mode: standalone)').matches && screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock('landscape').catch(() => {});
+  }
 </script>
