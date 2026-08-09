@@ -38,16 +38,26 @@
      corner — so they always sit right above DK/the boss no matter the boss's proportions or
      the camera framing. Both anchor from their bottom-center (transform below) at the (left,top)
      point JS sets, which is already lifted above the head. */
+  /* position:fixed with only `left` set (no `right`/width) computes shrink-to-fit width
+     against the space from that left edge to the viewport's right edge — not accounting
+     for the translateX(-50%) that recenters it after layout. Near the boss's head (right
+     side of screen) that starves it of room and, since #bossPattern's content is plain
+     text with the default white-space:normal, it wraps to two lines instead of rendering
+     wide. nowrap forces the box to size to its real (short, max 5-emoji) content instead. */
   #bossPattern,#slots{position:fixed;transform:translate(-50%,-100%);z-index:2;display:flex;gap:8px;
-                      padding:8px 14px;border-radius:16px;background:#00000066}
+                      padding:8px 14px;border-radius:16px;background:#00000066;white-space:nowrap}
   #bossPattern{font-size:clamp(30px,7.5vh,56px)}
   #timerWrap{width:min(90vw,460px);height:12px;background:#ffffff22;border-radius:7px;overflow:hidden}
   #timerFill{height:100%;width:100%;background:#e8b13a;transition:width .15s linear}
   #timerFill.low{background:#e04b4b}
   .slot{width:clamp(46px,10vh,68px);height:clamp(46px,10vh,68px);border:3px dashed #ffffff66;border-radius:14px;
-        display:flex;align-items:center;justify-content:center;font-size:clamp(26px,6.5vh,44px)}
+        display:flex;align-items:center;justify-content:center;font-size:clamp(26px,6.5vh,44px);flex-shrink:0}
   .slot.filled{border-style:solid;border-color:#e8b13a;background:#e8b13a22}
-  #palette{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;max-width:min(96vw,640px)}
+  /* Up to 5 pattern tiles + up to 5 distractors (distractorsFor caps at 5) = 10 buttons at
+     the hardest levels — wider than the boss's fixed 5-emoji strip needs, so this gets as
+     much of the viewport as is available rather than a fixed cap, and still wraps to a
+     second row gracefully on narrow screens instead of shrinking touch targets to fit. */
+  #palette{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;max-width:min(97vw,760px)}
   #palette button{font-size:clamp(26px,6.5vh,40px);padding:12px 16px;min-width:64px;min-height:64px;background:#33465e}
   #palette button:disabled{opacity:.2}
   #palette button.wrong{animation:shake .3s}
@@ -80,9 +90,14 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const EMOJI_POOL = ['🍌','🍎','🍇','🍊','🍓','🥝','🍉','🍒','🥥','🍍','🥭','🍑'];
 // level = bossIdx*3 + subround (0-based, 18 levels across the whole game). Each formula is
 // clamped so a 6-year-old always has a fair shot even on the last boss's last subround.
-const patternLenFor  = level => Math.min(6, Math.max(3, 3 + Math.floor(level / 3)));
+// Pattern length caps at 5 — this formula happens to reach 5 exactly at level 6, which is
+// Karate's first subround (boss index 2 * 3), and stays there for every boss after. Past
+// that point the timer is the only thing still ramping up, so it keeps shrinking all the
+// way to the final level instead of plateauing early — same gentle 1s-per-subround pace
+// throughout, just not cut off 3 levels before the end, so late bosses still feel harder.
+const patternLenFor  = level => Math.min(5, Math.max(3, 3 + Math.floor(level / 3)));
 const distractorsFor = level => Math.min(5, Math.max(2, 2 + Math.floor(level / 4)));
-const durationFor    = level => Math.min(30, Math.max(15, 30 - level));   // seconds
+const durationFor    = level => Math.min(30, Math.max(13, 30 - level));   // seconds
 
 const PROGRESS_KEY = 'dkmatch-progress-v1';
 const loadUnlocked = () => { try { const n = JSON.parse(localStorage.getItem(PROGRESS_KEY));
@@ -604,11 +619,19 @@ window.__checkAll = async () => {
   try {
     for (let lvl = 0; lvl < 18; lvl++) {
       const rd = makeRound(lvl);
-      if (rd.pattern.length < 3 || rd.pattern.length > 6) bad.push(`level ${lvl}: pattern length ${rd.pattern.length}`);
-      if (rd.duration < 15 || rd.duration > 30) bad.push(`level ${lvl}: duration ${rd.duration}`);
+      if (rd.pattern.length < 3 || rd.pattern.length > 5) bad.push(`level ${lvl}: pattern length ${rd.pattern.length}`);
+      if (rd.duration < 13 || rd.duration > 30) bad.push(`level ${lvl}: duration ${rd.duration}`);
       if (new Set(rd.palette).size !== rd.palette.length) bad.push(`level ${lvl}: duplicate palette tiles`);
       if (!rd.pattern.every(e => rd.palette.includes(e))) bad.push(`level ${lvl}: pattern tile missing from palette`);
     }
+    // Pattern length must hit its cap of 5 exactly at level 6 (Karate's first subround —
+    // boss index 2 * 3) and hold there for every level after; the timer must keep strictly
+    // decreasing all the way to the last level instead of plateauing early.
+    if (makeRound(5).pattern.length >= 5) bad.push('difficulty: pattern length reached 5 before Karate (level 5)');
+    for (let lvl = 6; lvl < 18; lvl++)
+      if (makeRound(lvl).pattern.length !== 5) bad.push(`difficulty: level ${lvl} pattern length should be capped at 5`);
+    for (let lvl = 1; lvl < 18; lvl++)
+      if (durationFor(lvl) >= durationFor(lvl - 1)) bad.push(`difficulty: timer did not shrink from level ${lvl - 1} to ${lvl}`);
 
     saveUnlocked(7);
     if (loadUnlocked() !== 7) bad.push('progress: did not round-trip through localStorage');
