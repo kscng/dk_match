@@ -65,9 +65,29 @@
   #msg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:clamp(22px,5vh,34px);
        font-weight:700;background:#000000b0;padding:14px 24px;border-radius:16px;opacity:0;
        transition:opacity .25s;pointer-events:none;z-index:5;text-align:center;white-space:nowrap}
+  /* window.confirm() is unreliable in installed-PWA/standalone contexts — some Android
+     WebView-hosted installs suppress native JS dialogs outright, silently returning false.
+     This is a real in-page overlay instead, so restart works the same everywhere. */
+  #confirmOverlay{position:fixed;inset:0;background:#000000aa;z-index:10;
+                  display:none;align-items:center;justify-content:center}
+  #confirmOverlay.show{display:flex}
+  #confirmBox{background:#243244;border-radius:18px;padding:24px 28px;max-width:min(80vw,320px);text-align:center}
+  #confirmBox p{margin:0 0 18px;font-size:16px;line-height:1.4}
+  #confirmBtns{display:flex;gap:10px;justify-content:center}
+  #confirmYes{background:#e04b4b}
+  #confirmNo{background:#33465e}
 </style>
 <div id="top"></div>
 <button id="restartBtn" title="Restart from Tusks">↺</button>
+<div id="confirmOverlay">
+  <div id="confirmBox">
+    <p>Restart from the beginning?<br>This locks all the bosses again.</p>
+    <div id="confirmBtns">
+      <button id="confirmYes">Restart</button>
+      <button id="confirmNo">Cancel</button>
+    </div>
+  </div>
+</div>
 <div id="bossPattern"></div>
 <div id="slots"></div>
 <div id="msg"></div>
@@ -547,12 +567,18 @@ function renderBossButtons() {
   });
 }
 
-// Wipes saved progress and starts over from Tusks — confirm() is a plain native browser
-// dialog, which is a deliberate choice here: this button is for whoever's holding the
-// phone to reset intentionally, not something a 6-year-old is likely to trigger by
-// accident, so a blocking "are you sure" is worth more than a fancier custom prompt.
-document.getElementById('restartBtn').onclick = () => {
-  if (!confirm('Restart from the beginning? This locks all the bosses again.')) return;
+// Wipes saved progress and starts over from Tusks. Confirms first — this button is for
+// whoever's holding the phone to reset intentionally, not something a 6-year-old is likely
+// to trigger by accident, so an "are you sure" step is worth having. That confirmation is
+// a custom in-page overlay rather than window.confirm(): native JS dialogs are unreliable
+// in installed-PWA/standalone contexts (some Android WebView-hosted installs suppress them
+// outright and silently return false), which is exactly why this button could look broken
+// despite the reset logic underneath it being fine.
+const confirmOverlay = document.getElementById('confirmOverlay');
+document.getElementById('restartBtn').onclick = () => confirmOverlay.classList.add('show');
+document.getElementById('confirmNo').onclick = () => confirmOverlay.classList.remove('show');
+document.getElementById('confirmYes').onclick = () => {
+  confirmOverlay.classList.remove('show');
   clearTimeout(advanceTimer);
   unlockedUpTo = 0; saveUnlocked(0);
   bossIdx = 0;
