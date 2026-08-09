@@ -25,6 +25,12 @@
   button:active{transform:scale(.96)}
   #hud{position:fixed;left:10px;bottom:calc(6px + env(safe-area-inset-bottom));font:11px ui-monospace,monospace;
        opacity:.55;white-space:pre;pointer-events:none;z-index:2}
+  /* Fixed to the corner rather than in the #top row — it's not a boss, and this way it
+     can never collide with #bossPattern (that one tracks the boss's head position, which
+     stays lower and more centered than this literal screen corner). */
+  #restartBtn{position:fixed;top:calc(8px + env(safe-area-inset-top));right:calc(8px + env(safe-area-inset-right));
+      z-index:3;min-width:0;width:36px;height:36px;padding:0;border-radius:50%;
+      background:#33465e;font-size:18px;line-height:1;opacity:.7}
 
   /* ---- match game ----
      #bossPattern and #slots are positioned every frame in JS (positionOverlays()), tracking
@@ -51,6 +57,7 @@
        transition:opacity .25s;pointer-events:none;z-index:5;text-align:center;white-space:nowrap}
 </style>
 <div id="top"></div>
+<button id="restartBtn" title="Restart from Tusks">↺</button>
 <div id="bossPattern"></div>
 <div id="slots"></div>
 <div id="msg"></div>
@@ -524,6 +531,19 @@ function renderBossButtons() {
     top.appendChild(el);
   });
 }
+
+// Wipes saved progress and starts over from Tusks — confirm() is a plain native browser
+// dialog, which is a deliberate choice here: this button is for whoever's holding the
+// phone to reset intentionally, not something a 6-year-old is likely to trigger by
+// accident, so a blocking "are you sure" is worth more than a fancier custom prompt.
+document.getElementById('restartBtn').onclick = () => {
+  if (!confirm('Restart from the beginning? This locks all the bosses again.')) return;
+  clearTimeout(advanceTimer);
+  unlockedUpTo = 0; saveUnlocked(0);
+  bossIdx = 0;
+  renderBossButtons();
+  layout();
+};
 
 function fit() { const w = innerWidth || 1280, h = innerHeight || 720;
   if (r.domElement.width !== Math.floor(w * Math.min(devicePixelRatio, 2))) {
